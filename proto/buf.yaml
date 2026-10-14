@@ -1,0 +1,11 @@
+# Contract-first: these .proto files are the Single Source of Truth of BioGuard.
+# Python (backend) and TypeScript (frontend) stubs are generated from here.
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+breaking:
+  use:
+    - FILE

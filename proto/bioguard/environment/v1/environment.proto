@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package bioguard.environment.v1;
+
+import "bioguard/common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// Environmental context for step 2 - "Investiga las posibles causas":
+// temperature, rain, vegetation, noise, fires and habitat disturbances.
+service EnvironmentService {
+  rpc ListVariables(ListVariablesRequest) returns (ListVariablesResponse);
+
+  // Daily series for several variables in one call.
+  rpc GetSeries(GetSeriesRequest) returns (GetSeriesResponse);
+
+  rpc ListHabitatEvents(ListHabitatEventsRequest) returns (ListHabitatEventsResponse);
+
+  // CLIENT STREAMING: sensors push batches of readings.
+  rpc RecordObservations(stream RecordObservationsRequest) returns (RecordObservationsResponse);
+}
+
+enum Variable {
+  VARIABLE_UNSPECIFIED = 0;
+  VARIABLE_WATER_TEMPERATURE = 1;
+  VARIABLE_AIR_TEMPERATURE = 2;
+  VARIABLE_RAINFALL = 3;
+  VARIABLE_RELATIVE_HUMIDITY = 4;
+  // Normalized Difference Vegetation Index of the riparian buffer (satellite).
+  VARIABLE_NDVI = 5;
+  // Anthropogenic noise level measured by the recorder.
+  VARIABLE_NOISE_LEVEL = 6;
+}
+
+message VariableInfo {
+  Variable variable = 1;
+  string name = 2;
+  string unit = 3;
+  string source = 4;
+}
+
+message ListVariablesRequest {}
+
+message ListVariablesResponse {
+  repeated VariableInfo variables = 1;
+}
+
+message VariableSeries {
+  Variable variable = 1;
+  string unit = 2;
+  repeated bioguard.common.v1.SeriesPoint points = 3;
+}
+
+message GetSeriesRequest {
+  string station_id = 1;
+  // Empty = all variables.
+  repeated Variable variables = 2;
+  bioguard.common.v1.TimeRange range = 3;
+}
+
+message GetSeriesResponse {
+  string station_id = 1;
+  repeated VariableSeries series = 2;
+}
+
+enum HabitatEventKind {
+  HABITAT_EVENT_KIND_UNSPECIFIED = 0;
+  HABITAT_EVENT_KIND_FIRE = 1;
+  HABITAT_EVENT_KIND_CLEARING = 2;
+  HABITAT_EVENT_KIND_LIVESTOCK = 3;
+  HABITAT_EVENT_KIND_NOISE_SOURCE = 4;
+  HABITAT_EVENT_KIND_RESTORATION = 5;
+}
+
+message HabitatEvent {
+  string id = 1;
+  HabitatEventKind kind = 2;
+  string station_id = 3;
+  google.protobuf.Timestamp occurred_at = 4;
+  double distance_m = 5;
+  string description = 6;
+  // "satélite", "reporte comunitario", "guardabosques"...
+  string source = 7;
+}
+
+message ListHabitatEventsRequest {
+  // Empty = all stations.
+  string station_id = 1;
+  bioguard.common.v1.TimeRange range = 2;
+}
+
+message ListHabitatEventsResponse {
+  repeated HabitatEvent events = 1;
+}
+
+message Observation {
+  string station_id = 1;
+  Variable variable = 2;
+  google.protobuf.Timestamp observed_at = 3;
+  double value = 4;
+}
+
+message RecordObservationsRequest {
+  repeated Observation observations = 1;
+}
+
+message RecordObservationsResponse {
+  int32 accepted = 1;
+  int32 rejected = 2;
+  repeated string errors = 3;
+}

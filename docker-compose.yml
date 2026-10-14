@@ -1,0 +1,14 @@
+# Local run of the same image deployed to the cloud.
+#   docker compose up --build    ->  http://localhost:8080
+services:
+  bioguard:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      PORT: "8080"
+    volumes:
+      - bioguard-data:/data
+
+volumes:
+  bioguard-data:

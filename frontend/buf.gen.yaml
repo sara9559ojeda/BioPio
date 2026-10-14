@@ -1,0 +1,11 @@
+# TypeScript code generation from the shared contract (../proto).
+# protoc-gen-es v2 emits both message types and service descriptors,
+# which @connectrpc/connect-web turns into typed gRPC-Web clients.
+version: v2
+plugins:
+  - local: protoc-gen-es
+    out: src/gen
+    opt:
+      - target=ts
+      - import_extension=js
+clean: true

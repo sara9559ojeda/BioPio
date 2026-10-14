@@ -1,0 +1,81 @@
+syntax = "proto3";
+
+package bioguard.common.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Shared vocabulary for every BioGuard service.
+
+enum Taxon {
+  TAXON_UNSPECIFIED = 0;
+  TAXON_BIRD = 1;
+  TAXON_AMPHIBIAN = 2;
+  TAXON_INSECT = 3;
+}
+
+enum StationRole {
+  STATION_ROLE_UNSPECIFIED = 0;
+  // Regular monitoring point where problems may appear.
+  STATION_ROLE_MONITORING = 1;
+  // Reference (control) site used for before/after-control/impact comparisons.
+  STATION_ROLE_REFERENCE = 2;
+}
+
+message GeoPoint {
+  double latitude = 1;
+  double longitude = 2;
+  double elevation_m = 3;
+}
+
+message TimeRange {
+  google.protobuf.Timestamp start = 1;
+  google.protobuf.Timestamp end = 2;
+}
+
+message SeriesPoint {
+  google.protobuf.Timestamp time = 1;
+  double value = 2;
+}
+
+// Monetary amount without floating point errors.
+message Money {
+  // ISO 4217 code, e.g. "COP".
+  string currency_code = 1;
+  int64 units = 2;
+}
+
+enum ConfidenceLevel {
+  CONFIDENCE_LEVEL_UNSPECIFIED = 0;
+  CONFIDENCE_LEVEL_LOW = 1;
+  CONFIDENCE_LEVEL_MEDIUM = 2;
+  CONFIDENCE_LEVEL_HIGH = 3;
+}
+
+// Explicit uncertainty: BioGuard never reports a number without it.
+message Uncertainty {
+  ConfidenceLevel level = 1;
+  // Interval for the main estimate (same units as the estimate).
+  double interval_low = 2;
+  double interval_high = 3;
+  // Human-readable caveats (sample size, confounders...).
+  string note = 4;
+}
+
+enum EvidenceSource {
+  EVIDENCE_SOURCE_UNSPECIFIED = 0;
+  EVIDENCE_SOURCE_ACOUSTIC = 1;
+  EVIDENCE_SOURCE_ENVIRONMENT = 2;
+  EVIDENCE_SOURCE_HABITAT_EVENT = 3;
+  EVIDENCE_SOURCE_REFERENCE_SITE = 4;
+  EVIDENCE_SOURCE_FIELD_WORK = 5;
+  EVIDENCE_SOURCE_EXPERT_KNOWLEDGE = 6;
+}
+
+message Evidence {
+  EvidenceSource source = 1;
+  string summary = 2;
+  // 0..1, how much this piece supports the claim it is attached to.
+  double weight = 3;
+  // Optional numeric detail (correlation, change %, etc.).
+  string metric = 4;
+}

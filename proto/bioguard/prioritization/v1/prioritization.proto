@@ -1,0 +1,103 @@
+syntax = "proto3";
+
+package bioguard.prioritization.v1;
+
+import "bioguard/common/v1/common.proto";
+import "bioguard/intervention/v1/intervention.proto";
+
+// Motor de Priorización de Conservación.
+// "Con el presupuesto, el personal y el tiempo disponibles, ¿qué acción de
+// conservación conviene realizar primero para obtener el mayor beneficio
+// ecológico posible?"
+// It SUPPORTS the decision; it does not decide which ecosystem deserves protection.
+service PrioritizationService {
+  rpc GetDefaults(GetDefaultsRequest) returns (GetDefaultsResponse);
+  rpc Prioritize(PrioritizeRequest) returns (PrioritizeResponse);
+}
+
+message Constraints {
+  bioguard.common.v1.Money budget = 1;
+  double staff_days = 2;
+  int32 horizon_weeks = 3;
+}
+
+// Relative importance of each criterion. Normalized by the server.
+message Weights {
+  double urgency = 1;
+  double benefit = 2;
+  double feasibility = 3;
+  double evidence = 4;
+  double monitoring = 5;
+}
+
+enum Criterion {
+  CRITERION_UNSPECIFIED = 0;
+  // Urgencia ecológica: cuánto podría empeorar si no se actúa.
+  CRITERION_URGENCY = 1;
+  // Beneficio potencial: especies o procesos que se benefician.
+  CRITERION_BENEFIT = 2;
+  // Viabilidad con los recursos disponibles.
+  CRITERION_FEASIBILITY = 3;
+  // Solidez de las pruebas que respaldan la decisión.
+  CRITERION_EVIDENCE = 4;
+  // Cómo se comprobará si funcionó.
+  CRITERION_MONITORING = 5;
+}
+
+message CriterionScore {
+  Criterion criterion = 1;
+  // 0..1 raw score.
+  double score = 2;
+  // score * normalized weight.
+  double contribution = 3;
+  string rationale = 4;
+}
+
+message RankedProposal {
+  int32 rank = 1;
+  bioguard.intervention.v1.Proposal proposal = 2;
+  repeated CriterionScore scores = 3;
+  double total_score = 4;
+  // Part of the recommended portfolio under the constraints.
+  bool selected = 5;
+  // Why it was left out (budget, staff, horizon...).
+  string exclusion_reason = 6;
+  // Best and worst rank observed when perturbing the weights.
+  int32 best_rank = 7;
+  int32 worst_rank = 8;
+  bool feasible = 9;
+}
+
+message PortfolioSummary {
+  bioguard.common.v1.Money total_cost = 1;
+  double total_staff_days = 2;
+  double budget_used_pct = 3;
+  double staff_used_pct = 4;
+  int32 selected_count = 5;
+  double total_score = 6;
+}
+
+message GetDefaultsRequest {}
+
+message GetDefaultsResponse {
+  Constraints constraints = 1;
+  Weights weights = 2;
+}
+
+message PrioritizeRequest {
+  Constraints constraints = 1;
+  Weights weights = 2;
+  // Empty = every open proposal.
+  repeated string proposal_ids = 3;
+}
+
+message PrioritizeResponse {
+  repeated RankedProposal ranking = 1;
+  PortfolioSummary portfolio = 2;
+  // Plain-language justification of the order.
+  repeated string justification = 3;
+  // Share of weight perturbations that keep the same first choice (0..1).
+  double top_choice_stability = 4;
+  Weights normalized_weights = 5;
+  string disclaimer = 6;
+}

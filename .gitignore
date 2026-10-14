@@ -1,0 +1,23 @@
+# Generated from proto/ (regenerate with the scripts in the README)
+backend/gen/
+frontend/src/gen/
+
+# Python
+__pycache__/
+*.pyc
+backend/.venv/
+.venv/
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Node
+node_modules/
+frontend/dist/
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

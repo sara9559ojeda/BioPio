@@ -1,0 +1,174 @@
+syntax = "proto3";
+
+package bioguard.investigation.v1;
+
+import "bioguard/acoustic/v1/acoustic.proto";
+import "bioguard/common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// Step 2 - "Investiga las posibles causas".
+// Combines acoustic signals with environmental data and proposes testable
+// hypotheses. It NEVER attributes a cause on its own: only field work can
+// confirm or reject a hypothesis.
+service InvestigationService {
+  // SERVER STREAMING: runs the analysis and streams every step, ending with
+  // the resulting investigation.
+  rpc RunAnalysis(RunAnalysisRequest) returns (stream RunAnalysisResponse);
+
+  rpc GetInvestigation(GetInvestigationRequest) returns (GetInvestigationResponse);
+  rpc ListInvestigations(ListInvestigationsRequest) returns (ListInvestigationsResponse);
+
+  // Researchers report what they found in the field for one hypothesis.
+  rpc RecordFieldFinding(RecordFieldFindingRequest) returns (RecordFieldFindingResponse);
+}
+
+enum Driver {
+  DRIVER_UNSPECIFIED = 0;
+  DRIVER_WATER_WARMING = 1;
+  DRIVER_RIPARIAN_VEGETATION_LOSS = 2;
+  DRIVER_RAINFALL_DEFICIT = 3;
+  DRIVER_HUMIDITY_DROP = 4;
+  DRIVER_ANTHROPOGENIC_NOISE = 5;
+  DRIVER_AIR_HEAT = 6;
+  DRIVER_FIRE = 7;
+  DRIVER_HABITAT_CLEARING = 8;
+  DRIVER_LIVESTOCK_DISTURBANCE = 9;
+  // Alternative explanations that must always be considered.
+  DRIVER_REGIONAL_OR_SEASONAL = 10;
+  DRIVER_SENSOR_OR_EFFORT = 11;
+}
+
+enum HypothesisStatus {
+  HYPOTHESIS_STATUS_UNSPECIFIED = 0;
+  // Proposed by the system, pending field verification.
+  HYPOTHESIS_STATUS_PROPOSED = 1;
+  HYPOTHESIS_STATUS_FIELD_CONFIRMED = 2;
+  HYPOTHESIS_STATUS_FIELD_REJECTED = 3;
+  HYPOTHESIS_STATUS_FIELD_INCONCLUSIVE = 4;
+}
+
+message VerificationTask {
+  string id = 1;
+  string description = 2;
+  string method = 3;
+  double estimated_hours = 4;
+}
+
+message FieldFinding {
+  HypothesisStatus outcome = 1;
+  string notes = 2;
+  string recorded_by = 3;
+  google.protobuf.Timestamp recorded_at = 4;
+}
+
+message Hypothesis {
+  string id = 1;
+  Driver driver = 2;
+  string title = 3;
+  string statement = 4;
+  // 0..1 how much the available data supports it. Not a probability of cause.
+  double support = 5;
+  bioguard.common.v1.Uncertainty uncertainty = 6;
+  repeated bioguard.common.v1.Evidence evidence = 7;
+  repeated VerificationTask verification_tasks = 8;
+  HypothesisStatus status = 9;
+  FieldFinding finding = 10;
+  // Other hypotheses that may belong to the same mechanism.
+  repeated string related_hypothesis_ids = 11;
+}
+
+message DiscardedDriver {
+  Driver driver = 1;
+  string reason = 2;
+}
+
+enum InvestigationStatus {
+  INVESTIGATION_STATUS_UNSPECIFIED = 0;
+  // Hypotheses proposed, waiting for field work.
+  INVESTIGATION_STATUS_AWAITING_FIELD_WORK = 1;
+  // At least one hypothesis confirmed in the field.
+  INVESTIGATION_STATUS_CAUSE_SUPPORTED = 2;
+  // Every hypothesis rejected: a new investigation is needed.
+  INVESTIGATION_STATUS_NEEDS_NEW_HYPOTHESES = 3;
+}
+
+message Investigation {
+  string id = 1;
+  bioguard.acoustic.v1.Signal signal = 2;
+  InvestigationStatus status = 3;
+  repeated Hypothesis hypotheses = 4;
+  repeated DiscardedDriver discarded = 5;
+  google.protobuf.Timestamp created_at = 6;
+  google.protobuf.Timestamp updated_at = 7;
+  string station_name = 8;
+  string species_name = 9;
+  // Why the system does not attribute a cause yet.
+  string caveat = 10;
+}
+
+message RunAnalysisRequest {
+  // Either a signal id from AcousticService.DetectSignals...
+  string signal_id = 1;
+  // ...or a station + species pair.
+  string station_id = 2;
+  string species_code = 3;
+  // Optional pause between steps so a UI can show progress (demo only).
+  int32 step_delay_ms = 4;
+}
+
+enum AnalysisStage {
+  ANALYSIS_STAGE_UNSPECIFIED = 0;
+  ANALYSIS_STAGE_ACOUSTIC = 1;
+  ANALYSIS_STAGE_REFERENCE = 2;
+  ANALYSIS_STAGE_ENVIRONMENT = 3;
+  ANALYSIS_STAGE_HABITAT_EVENTS = 4;
+  ANALYSIS_STAGE_CORRELATION = 5;
+  ANALYSIS_STAGE_ALTERNATIVES = 6;
+  ANALYSIS_STAGE_VERIFICATION_PLAN = 7;
+  ANALYSIS_STAGE_DONE = 8;
+}
+
+message AnalysisStep {
+  AnalysisStage stage = 1;
+  string message = 2;
+  // 0..1
+  double progress = 3;
+  // Remote procedure called during this step, e.g. "AcousticService/GetActivityTrend".
+  string rpc = 4;
+  double elapsed_ms = 5;
+}
+
+message RunAnalysisResponse {
+  oneof event {
+    AnalysisStep step = 1;
+    Investigation investigation = 2;
+  }
+}
+
+message GetInvestigationRequest {
+  string investigation_id = 1;
+}
+
+message GetInvestigationResponse {
+  Investigation investigation = 1;
+}
+
+message ListInvestigationsRequest {
+  string station_id = 1;
+}
+
+message ListInvestigationsResponse {
+  repeated Investigation investigations = 1;
+}
+
+message RecordFieldFindingRequest {
+  string investigation_id = 1;
+  string hypothesis_id = 2;
+  HypothesisStatus outcome = 3;
+  string notes = 4;
+  string recorded_by = 5;
+}
+
+message RecordFieldFindingResponse {
+  Investigation investigation = 1;
+}

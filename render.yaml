@@ -1,0 +1,11 @@
+# Render Blueprint: one Docker web service (gRPC microservices + Envoy + UI).
+services:
+  - type: web
+    name: bioguard
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: "8080"

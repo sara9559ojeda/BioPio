@@ -1,0 +1,203 @@
+syntax = "proto3";
+
+package bioguard.intervention.v1;
+
+import "bioguard/common/v1/common.proto";
+import "bioguard/investigation/v1/investigation.proto";
+import "google/protobuf/timestamp.proto";
+
+// Steps 3 and 4 - "Recomienda una intervención" y "Comprueba si funcionó".
+// Proposals always carry evidence, uncertainty, estimated cost and expected
+// outcome. An executed intervention is NOT the same as a demonstrated improvement.
+service InterventionService {
+  // Generates proposals from the hypotheses of an investigation.
+  rpc RecommendInterventions(RecommendInterventionsRequest) returns (RecommendInterventionsResponse);
+  rpc ListProposals(ListProposalsRequest) returns (ListProposalsResponse);
+
+  // The organization accepts a proposal: it becomes a planned intervention.
+  rpc ApproveProposal(ApproveProposalRequest) returns (ApproveProposalResponse);
+  rpc RecordExecution(RecordExecutionRequest) returns (RecordExecutionResponse);
+  rpc ListInterventions(ListInterventionsRequest) returns (ListInterventionsResponse);
+
+  // Before/After-Control/Impact comparison using new recordings.
+  rpc EvaluateOutcome(EvaluateOutcomeRequest) returns (EvaluateOutcomeResponse);
+}
+
+enum InterventionKind {
+  INTERVENTION_KIND_UNSPECIFIED = 0;
+  INTERVENTION_KIND_RIPARIAN_RESTORATION = 1;
+  INTERVENTION_KIND_NOISE_SOURCE_INVESTIGATION = 2;
+  INTERVENTION_KIND_BREEDING_AREA_PROTECTION = 3;
+  INTERVENTION_KIND_ADDITIONAL_SAMPLING = 4;
+  INTERVENTION_KIND_WATER_QUALITY_MONITORING = 5;
+  INTERVENTION_KIND_FIRE_RECOVERY = 6;
+  INTERVENTION_KIND_NOISE_MITIGATION = 7;
+}
+
+message ExpectedOutcome {
+  string description = 1;
+  // Expected change of the monitored activity rate, percent.
+  double change_pct_low = 2;
+  double change_pct_high = 3;
+  // How long until an effect could be measurable.
+  int32 weeks_to_effect = 4;
+}
+
+message MonitoringPlan {
+  string metric = 1;
+  string impact_station_id = 2;
+  // Reference site for the comparison; empty if there is none.
+  string control_station_id = 3;
+  repeated string species_codes = 4;
+  int32 min_weeks_after = 5;
+  string design = 6;
+}
+
+enum ProposalStatus {
+  PROPOSAL_STATUS_UNSPECIFIED = 0;
+  PROPOSAL_STATUS_OPEN = 1;
+  PROPOSAL_STATUS_APPROVED = 2;
+  PROPOSAL_STATUS_DISCARDED = 3;
+}
+
+message Proposal {
+  string id = 1;
+  string investigation_id = 2;
+  string hypothesis_id = 3;
+  InterventionKind kind = 4;
+  string title = 5;
+  string description = 6;
+  string station_id = 7;
+  repeated bioguard.common.v1.Evidence evidence = 8;
+  bioguard.common.v1.Uncertainty uncertainty = 9;
+  bioguard.common.v1.Money estimated_cost = 10;
+  double staff_days = 11;
+  int32 duration_weeks = 12;
+  ExpectedOutcome expected_outcome = 13;
+  MonitoringPlan monitoring = 14;
+  // Species expected to benefit (target + co-benefits).
+  repeated string benefiting_species = 15;
+  // Ecological processes that benefit (corridor connectivity, water quality...).
+  repeated string ecological_processes = 16;
+  // True when the supporting hypothesis is not yet confirmed in the field.
+  bool requires_field_confirmation = 17;
+  bioguard.investigation.v1.HypothesisStatus hypothesis_status = 18;
+  ProposalStatus status = 19;
+  google.protobuf.Timestamp created_at = 20;
+}
+
+enum InterventionStatus {
+  INTERVENTION_STATUS_UNSPECIFIED = 0;
+  INTERVENTION_STATUS_PLANNED = 1;
+  // Done in the field; effect not yet demonstrated.
+  INTERVENTION_STATUS_EXECUTED = 2;
+  INTERVENTION_STATUS_IMPROVEMENT_DEMONSTRATED = 3;
+  INTERVENTION_STATUS_NO_IMPROVEMENT = 4;
+}
+
+enum Verdict {
+  VERDICT_UNSPECIFIED = 0;
+  // Not enough weeks of data after execution.
+  VERDICT_INSUFFICIENT_DATA = 1;
+  VERDICT_NO_IMPROVEMENT_DETECTED = 2;
+  // Positive trend whose interval still includes zero.
+  VERDICT_INCONCLUSIVE_POSITIVE = 3;
+  VERDICT_IMPROVEMENT_DEMONSTRATED = 4;
+  VERDICT_DETERIORATION = 5;
+}
+
+message SpeciesEffect {
+  string species_code = 1;
+  double impact_before = 2;
+  double impact_after = 3;
+  double control_before = 4;
+  double control_after = 5;
+  // (impact_after - impact_before) - (control_after - control_before), detections/hour.
+  double effect = 6;
+  // Effect relative to the impact baseline, percent.
+  double effect_pct = 7;
+  // 90% bootstrap interval of effect_pct.
+  double interval_low_pct = 8;
+  double interval_high_pct = 9;
+}
+
+message OutcomeEvaluation {
+  string intervention_id = 1;
+  Verdict verdict = 2;
+  google.protobuf.Timestamp evaluated_at = 3;
+  int32 weeks_before = 4;
+  int32 weeks_after = 5;
+  repeated SpeciesEffect effects = 6;
+  repeated bioguard.common.v1.Evidence corroborating_evidence = 7;
+  string message = 8;
+  string recommended_next_step = 9;
+  // Weekly rate (all target species) for charting.
+  repeated bioguard.common.v1.SeriesPoint impact_series = 10;
+  repeated bioguard.common.v1.SeriesPoint control_series = 11;
+}
+
+message Intervention {
+  string id = 1;
+  Proposal proposal = 2;
+  InterventionStatus status = 3;
+  google.protobuf.Timestamp approved_at = 4;
+  google.protobuf.Timestamp executed_at = 5;
+  string execution_notes = 6;
+  bioguard.common.v1.Money actual_cost = 7;
+  OutcomeEvaluation last_evaluation = 8;
+}
+
+message RecommendInterventionsRequest {
+  string investigation_id = 1;
+}
+
+message RecommendInterventionsResponse {
+  repeated Proposal proposals = 1;
+  bioguard.investigation.v1.Investigation investigation = 2;
+}
+
+message ListProposalsRequest {
+  // Empty = open proposals only.
+  repeated ProposalStatus statuses = 1;
+}
+
+message ListProposalsResponse {
+  repeated Proposal proposals = 1;
+}
+
+message ApproveProposalRequest {
+  string proposal_id = 1;
+}
+
+message ApproveProposalResponse {
+  Intervention intervention = 1;
+}
+
+message RecordExecutionRequest {
+  string intervention_id = 1;
+  // Defaults to now.
+  google.protobuf.Timestamp executed_at = 2;
+  string notes = 3;
+  bioguard.common.v1.Money actual_cost = 4;
+}
+
+message RecordExecutionResponse {
+  Intervention intervention = 1;
+  // Side effects triggered on other services (e.g. station commands).
+  repeated string triggered_actions = 2;
+}
+
+message ListInterventionsRequest {}
+
+message ListInterventionsResponse {
+  repeated Intervention interventions = 1;
+}
+
+message EvaluateOutcomeRequest {
+  string intervention_id = 1;
+}
+
+message EvaluateOutcomeResponse {
+  OutcomeEvaluation evaluation = 1;
+  Intervention intervention = 2;
+}

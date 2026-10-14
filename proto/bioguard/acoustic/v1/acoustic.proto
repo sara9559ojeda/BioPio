@@ -1,0 +1,335 @@
+syntax = "proto3";
+
+package bioguard.acoustic.v1;
+
+import "bioguard/common/v1/common.proto";
+import "google/protobuf/timestamp.proto";
+
+// Step 1 - "Escucha el ecosistema".
+// Receives audio from field recorders, identifies the vocalizations the model
+// recognizes and turns them into activity trends and signals worth investigating.
+service AcousticService {
+  rpc ListStations(ListStationsRequest) returns (ListStationsResponse);
+  rpc GetStation(GetStationRequest) returns (GetStationResponse);
+  rpc ListSpecies(ListSpeciesRequest) returns (ListSpeciesResponse);
+
+  // CLIENT STREAMING: a recorder uploads one recording as many audio chunks.
+  // The first message carries metadata, the rest carry PCM bytes.
+  rpc UploadRecording(stream UploadRecordingRequest) returns (UploadRecordingResponse);
+
+  // UNARY: analyze a short clip in a single message (used by browsers, since
+  // gRPC-Web does not support client streaming).
+  rpc AnalyzeClip(AnalyzeClipRequest) returns (AnalyzeClipResponse);
+
+  // SERVER STREAMING: live feed of detections as recordings get processed.
+  rpc StreamDetections(StreamDetectionsRequest) returns (stream StreamDetectionsResponse);
+
+  rpc GetActivityTrend(GetActivityTrendRequest) returns (GetActivityTrendResponse);
+
+  // Finds persistent changes in species activity that deserve investigation.
+  rpc DetectSignals(DetectSignalsRequest) returns (DetectSignalsResponse);
+
+  // BIDIRECTIONAL STREAMING: permanent link with a field station.
+  // The station sends telemetry; the server pushes commands (extra sampling...).
+  rpc StationLink(stream StationLinkRequest) returns (stream StationLinkResponse);
+
+  // Queues a command that is delivered through the station's StationLink stream.
+  rpc SendStationCommand(SendStationCommandRequest) returns (SendStationCommandResponse);
+}
+
+// ---------- Catalog ----------
+
+enum StationStatus {
+  STATION_STATUS_UNSPECIFIED = 0;
+  STATION_STATUS_ONLINE = 1;
+  STATION_STATUS_OFFLINE = 2;
+}
+
+message Station {
+  string id = 1;
+  string name = 2;
+  string habitat = 3;
+  bioguard.common.v1.GeoPoint location = 4;
+  bioguard.common.v1.StationRole role = 5;
+  StationStatus status = 6;
+  double battery_pct = 7;
+  double storage_used_pct = 8;
+  google.protobuf.Timestamp last_seen = 9;
+  // Recording schedule in minutes of audio per hour.
+  int32 duty_cycle_minutes_per_hour = 10;
+  // Reference station used as control for this one (empty for references).
+  string reference_station_id = 11;
+}
+
+enum Sensitivity {
+  SENSITIVITY_UNSPECIFIED = 0;
+  SENSITIVITY_LOW = 1;
+  SENSITIVITY_MEDIUM = 2;
+  SENSITIVITY_HIGH = 3;
+}
+
+message Species {
+  string code = 1;
+  string scientific_name = 2;
+  string common_name = 3;
+  bioguard.common.v1.Taxon taxon = 4;
+  // Frequency band used by the acoustic model.
+  double band_low_hz = 5;
+  double band_high_hz = 6;
+  // "nocturna", "diurna", "crepuscular".
+  string activity_period = 7;
+  // Ecological sensitivity to habitat change.
+  Sensitivity sensitivity = 8;
+}
+
+message ListStationsRequest {}
+
+message ListStationsResponse {
+  repeated Station stations = 1;
+}
+
+message GetStationRequest {
+  string station_id = 1;
+}
+
+message GetStationResponse {
+  Station station = 1;
+  // Last commands sent through StationLink and their delivery state.
+  repeated CommandLogEntry recent_commands = 2;
+  // Last clips analyzed for this station.
+  repeated RecordingSummary recent_recordings = 3;
+}
+
+message ListSpeciesRequest {}
+
+message ListSpeciesResponse {
+  repeated Species species = 1;
+}
+
+// ---------- Recordings & detections ----------
+
+message RecordingMetadata {
+  string station_id = 1;
+  google.protobuf.Timestamp started_at = 2;
+  int32 sample_rate_hz = 3;
+  // Only "pcm_s16le" (mono, 16 bit little endian) is supported.
+  string encoding = 4;
+}
+
+message UploadRecordingRequest {
+  oneof payload {
+    RecordingMetadata metadata = 1;
+    bytes audio_chunk = 2;
+  }
+}
+
+message Detection {
+  string id = 1;
+  string station_id = 2;
+  string species_code = 3;
+  google.protobuf.Timestamp detected_at = 4;
+  // Model confidence 0..1.
+  double confidence = 5;
+  double peak_frequency_hz = 6;
+  string recording_id = 7;
+  // Offset from the start of the recording, seconds.
+  double offset_s = 8;
+}
+
+message RecordingSummary {
+  string recording_id = 1;
+  string station_id = 2;
+  double duration_s = 3;
+  int64 bytes_received = 4;
+  int32 chunks_received = 5;
+  repeated Detection detections = 6;
+  // Acoustic events the model does NOT recognize (it never guesses a species).
+  int32 unidentified_events = 7;
+  string model_version = 8;
+  double processing_ms = 9;
+}
+
+message UploadRecordingResponse {
+  RecordingSummary summary = 1;
+}
+
+message AnalyzeClipRequest {
+  RecordingMetadata metadata = 1;
+  // Raw PCM or a complete WAV file (RIFF header is parsed when present).
+  bytes audio = 2;
+  // When false the clip is analyzed but not stored as monitoring data.
+  bool persist = 3;
+}
+
+message AnalyzeClipResponse {
+  RecordingSummary summary = 1;
+}
+
+message StreamDetectionsRequest {
+  // Empty = all stations.
+  string station_id = 1;
+}
+
+message StreamDetectionsResponse {
+  Detection detection = 1;
+}
+
+// ---------- Trends & signals ----------
+
+enum Resolution {
+  RESOLUTION_UNSPECIFIED = 0;
+  RESOLUTION_DAY = 1;
+  RESOLUTION_WEEK = 2;
+}
+
+message ActivityPoint {
+  google.protobuf.Timestamp period_start = 1;
+  int32 detections = 2;
+  double recording_hours = 3;
+  // Detections per recording hour: normalizes by sampling effort.
+  double rate_per_hour = 4;
+}
+
+message SpeciesTrend {
+  string species_code = 1;
+  repeated ActivityPoint points = 2;
+}
+
+message GetActivityTrendRequest {
+  string station_id = 1;
+  // Empty = every species.
+  repeated string species_codes = 2;
+  Resolution resolution = 3;
+  // Defaults to the last 26 weeks.
+  bioguard.common.v1.TimeRange range = 4;
+}
+
+message GetActivityTrendResponse {
+  string station_id = 1;
+  Resolution resolution = 2;
+  repeated SpeciesTrend trends = 3;
+}
+
+enum SignalKind {
+  SIGNAL_KIND_UNSPECIFIED = 0;
+  SIGNAL_KIND_PERSISTENT_DECLINE = 1;
+}
+
+message Signal {
+  string id = 1;
+  string station_id = 2;
+  string species_code = 3;
+  SignalKind kind = 4;
+  // First week of the persistent run.
+  google.protobuf.Timestamp onset = 5;
+  int32 weeks_persisting = 6;
+  double baseline_rate_per_hour = 7;
+  double recent_rate_per_hour = 8;
+  // Negative = decline.
+  double change_pct = 9;
+  // Same species at the reference station over the same weeks.
+  double reference_change_pct = 10;
+  // True when the reference site does not show the same change.
+  bool localized = 11;
+  // 0..1
+  double severity = 12;
+  bioguard.common.v1.Uncertainty uncertainty = 13;
+  string summary = 14;
+}
+
+message DetectSignalsRequest {
+  // Empty = all monitoring stations.
+  string station_id = 1;
+  // Defaults: 12 baseline weeks, 3 weeks of persistence.
+  int32 baseline_weeks = 2;
+  int32 min_persistence_weeks = 3;
+}
+
+message DetectSignalsResponse {
+  repeated Signal signals = 1;
+}
+
+// ---------- Field link (bidirectional) ----------
+
+message StationHello {
+  string station_id = 1;
+  string firmware_version = 2;
+}
+
+message StationTelemetry {
+  google.protobuf.Timestamp measured_at = 1;
+  double battery_pct = 2;
+  double storage_used_pct = 3;
+  double enclosure_temperature_c = 4;
+}
+
+message CommandAck {
+  string command_id = 1;
+  bool success = 2;
+  string detail = 3;
+}
+
+message StationLinkRequest {
+  oneof message {
+    StationHello hello = 1;
+    StationTelemetry telemetry = 2;
+    CommandAck ack = 3;
+  }
+}
+
+enum CommandKind {
+  COMMAND_KIND_UNSPECIFIED = 0;
+  // Record extra clips right now (e.g. to confirm a signal).
+  COMMAND_KIND_EXTRA_SAMPLING = 1;
+  // Change the recording schedule.
+  COMMAND_KIND_SET_DUTY_CYCLE = 2;
+  COMMAND_KIND_PING = 3;
+}
+
+message StationCommand {
+  string id = 1;
+  CommandKind kind = 2;
+  // EXTRA_SAMPLING: number of clips. SET_DUTY_CYCLE: minutes per hour.
+  int32 value = 3;
+  string reason = 4;
+  google.protobuf.Timestamp issued_at = 5;
+}
+
+message StationLinkResponse {
+  oneof message {
+    // Sent once the station is registered on the link.
+    Station welcome = 1;
+    StationCommand command = 2;
+  }
+}
+
+enum CommandState {
+  COMMAND_STATE_UNSPECIFIED = 0;
+  // Station offline: waiting for it to connect.
+  COMMAND_STATE_QUEUED = 1;
+  // Pushed through the bidirectional stream.
+  COMMAND_STATE_DELIVERED = 2;
+  // The station confirmed it executed the command.
+  COMMAND_STATE_ACKNOWLEDGED = 3;
+  COMMAND_STATE_FAILED = 4;
+}
+
+message CommandLogEntry {
+  StationCommand command = 1;
+  CommandState state = 2;
+  string detail = 3;
+  google.protobuf.Timestamp updated_at = 4;
+}
+
+message SendStationCommandRequest {
+  string station_id = 1;
+  CommandKind kind = 2;
+  int32 value = 3;
+  string reason = 4;
+}
+
+message SendStationCommandResponse {
+  StationCommand command = 1;
+  // True if the station is connected and the command was pushed immediately.
+  bool delivered = 2;
+}
